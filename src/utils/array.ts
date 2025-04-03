@@ -160,7 +160,7 @@ export function flatten<T>(
  * @param options - Optional validation options
  * @returns Boolean indicating if array is empty
  */
-export function isEmpty<T>(
+export function isArrayEmpty<T>(
     arr: T[],
     options: {
         checkNull?: boolean;

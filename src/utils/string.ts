@@ -89,7 +89,7 @@ export function toCamelCase(
  * @param options.includeWhitespace - Whether to consider whitespace-only strings as empty
  * @returns Boolean indicating if string is empty
  */
-export function isEmpty(
+export function isStringEmpty(
     str: string,
     options: { includeWhitespace?: boolean } = {}
 ): boolean {
