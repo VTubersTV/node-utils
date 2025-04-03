@@ -1,0 +1,8 @@
+{
+  "deviceTypes": ["mobile", "tablet", "desktop"],
+  "deviceRegex": {
+    "mobile": "Mobile|Android|iPhone|iPad|iPod|Windows Phone",
+    "tablet": "iPad|Tablet|PlayBook|Silk",
+    "desktop": "Windows NT|Macintosh|Linux"
+  }
+} 
