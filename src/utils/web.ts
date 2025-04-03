@@ -1,4 +1,4 @@
-import deviceTypesData from '../json/device-types.json';
+import { deviceTypesConfig } from '../json/device-types';
 
 /**
  * Gets device information including user agent, device type, browser details, and screen properties
@@ -26,11 +26,11 @@ import deviceTypesData from '../json/device-types.json';
 export async function getDeviceInfo() {
   const userAgent = navigator.userAgent;
   type DeviceType = 'mobile' | 'tablet' | 'desktop';
-  const deviceTypes = deviceTypesData.deviceTypes as DeviceType[];
+  const deviceTypes = deviceTypesConfig.deviceTypes as DeviceType[];
   const deviceRegex: Record<DeviceType, RegExp> = {
-    mobile: new RegExp(deviceTypesData.deviceRegex.mobile, 'i'),
-    tablet: new RegExp(deviceTypesData.deviceRegex.tablet, 'i'),
-    desktop: new RegExp(deviceTypesData.deviceRegex.desktop, 'i')
+    mobile: new RegExp(deviceTypesConfig.deviceRegex.mobile, 'i'),
+    tablet: new RegExp(deviceTypesConfig.deviceRegex.tablet, 'i'),
+    desktop: new RegExp(deviceTypesConfig.deviceRegex.desktop, 'i')
   };
 
   const deviceType = deviceTypes.find(type => deviceRegex[type].test(userAgent)) || 'unknown';
