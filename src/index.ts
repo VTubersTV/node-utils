@@ -6,5 +6,5 @@ export * from './utils/string';
 export * from './utils/number';
 export * from './utils/array';
 export * from './utils/object';
-export * from './utils/files';
+export * from './utils/file';
 
