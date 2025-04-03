@@ -7,4 +7,4 @@ export * from './utils/number';
 export * from './utils/array';
 export * from './utils/object';
 export * from './utils/file';
-
+export * from './utils/web';

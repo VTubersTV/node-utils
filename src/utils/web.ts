@@ -23,7 +23,7 @@ import deviceTypesData from '../json/device-types.json';
  *   }
  * }>} Device information object
  */
-async function getDeviceInfo() {
+export async function getDeviceInfo() {
   const userAgent = navigator.userAgent;
   type DeviceType = 'mobile' | 'tablet' | 'desktop';
   const deviceTypes = deviceTypesData.deviceTypes as DeviceType[];
