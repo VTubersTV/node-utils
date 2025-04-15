@@ -1,15 +1,15 @@
+export type DeviceType = 'mobile' | 'tablet' | 'desktop';
+
 export interface DeviceTypesConfig {
-  deviceTypes: string[];
-  deviceRegex: {
-    [key: string]: string;
-  };
+  deviceTypes: DeviceType[];
+  deviceRegex: Record<DeviceType, string>;
 }
 
 export const deviceTypesConfig: DeviceTypesConfig = {
-  deviceTypes: ["mobile", "tablet", "desktop"],
+  deviceTypes: ['mobile', 'tablet', 'desktop'],
   deviceRegex: {
-    mobile: "Mobile|Android|iPhone|iPad|iPod|Windows Phone",
-    tablet: "iPad|Tablet|PlayBook|Silk",
-    desktop: "Windows NT|Macintosh|Linux"
+    mobile: 'Mobile|Android|iPhone|iPad|iPod|Windows Phone|webOS|BlackBerry',
+    tablet: 'iPad|Tablet|PlayBook|Silk|Android(?!.*Mobile)',
+    desktop: 'Windows NT|Macintosh|Linux|X11|Ubuntu|Fedora|Chrome OS'
   }
-}; 
+};
