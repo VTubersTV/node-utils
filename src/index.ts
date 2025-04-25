@@ -1,5 +1,4 @@
 export * from './classes/Helix';
-export * from './classes/auth';
 export * from './classes/fetch';
 export * from './utils/date';
 export * from './utils/string';
