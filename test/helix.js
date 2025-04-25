@@ -5,6 +5,7 @@ const crypto = require('crypto');
 
 /**
  * Test suite for Helix ID and token generation
+ * @description Tests the functionality of the Helix distributed ID and token generator
  */
 const tests = [
     buildTest('Should generate unique IDs', async () => {
@@ -21,51 +22,44 @@ const tests = [
         assert(id2 > id1, 'Sequential IDs should be increasing');
     }),
 
-    buildTest('Should generate and decode tokens', async () => {
-        const helix = new Helix();
+    buildTest('Should generate and verify tokens', async () => {
+        const helix = new Helix({ tokenSecret: 'test-secret' });
         const data = { userId: '123', role: 'admin' };
         const token = helix.generateToken(data);
 
-        // Token should be a string with 3 parts
+        // Token should be a string with 2 parts
         assert(typeof token === 'string', 'Token should be a string');
-        assert(token.split('.').length === 3, 'Token should have 3 parts');
+        assert(token.split('.').length === 2, 'Token should have 2 parts');
 
-        // Decode and verify token
-        const decoded = Helix.decodeToken(token);
-        assert(decoded.id, 'Decoded token should have an ID');
-        assert(decoded.version === 1, 'Token version should be 1');
-        assert(decoded.timestamp instanceof Date, 'Timestamp should be a Date');
+        // Verify and decode token
+        const decoded = helix.verifyToken(token);
+        assert.deepStrictEqual(decoded, data, 'Decoded token should match original data');
     }),
 
-    buildTest('Should verify HMAC signatures', async () => {
-        const payload = 'test-payload';
-        const secret = 'test-secret';
+    buildTest('Should handle token verification failures', async () => {
+        const helix = new Helix({ tokenSecret: 'test-secret' });
+        const data = { userId: '123', role: 'admin' };
+        const token = helix.generateToken(data);
 
-        // Generate HMAC using same method as implementation
-        const hmac = crypto
-            .createHmac('sha256', secret)
-            .update(Buffer.from(payload))
-            .digest()
-            .slice(0, 8)
-            .toString('base64url');
+        // Modify token to make it invalid
+        const invalidToken = token.slice(0, -1) + 'x';
 
-        // Verify HMAC
-        const isValid = Helix.verifyHMAC(payload, hmac, secret);
-        assert(isValid, 'HMAC verification should succeed with correct signature');
-
-        // Verify incorrect HMAC fails
-        const isInvalid = Helix.verifyHMAC(payload, 'wrong-signature', secret);
-        assert(!isInvalid, 'HMAC verification should fail with incorrect signature');
+        try {
+            helix.verifyToken(invalidToken);
+            assert.fail('Should throw error for invalid token');
+        } catch (err) {
+            assert(err instanceof HelixError, 'Should throw HelixError for invalid token');
+        }
     }),
 
     buildTest('Should handle worker ID limits', async () => {
         // Test valid worker ID
-        const helix1 = new Helix(123);
+        const helix1 = new Helix({ workerId: 123 });
         assert(helix1 instanceof Helix, 'Should create instance with valid worker ID');
 
         // Test invalid worker ID
         try {
-            new Helix(1024); // Max is 1023 (10 bits)
+            new Helix({ workerId: 1024 }); // Max is 1023 (10 bits)
             assert.fail('Should throw error for invalid worker ID');
         } catch (err) {
             assert(err instanceof HelixError, 'Should throw HelixError for invalid worker ID');
@@ -73,7 +67,7 @@ const tests = [
     }),
 
     buildTest('Should decode ID components correctly', async () => {
-        const helix = new Helix(123);
+        const helix = new Helix({ workerId: 123 });
         const id = BigInt(helix.generateId());
         const decoded = Helix.decodeId(id);
 

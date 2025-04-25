@@ -1,237 +1,209 @@
-# Helix ID Generator
+# Helix ID & Token Generator
 
-The Helix ID generator provides a robust solution for generating distributed unique IDs and secure tokens. It implements a Snowflake-like algorithm with additional features for token generation and validation.
+A high-performance distributed unique ID and token generator with a simple, secure token format.
 
-## Overview
+## Features
 
-Helix features:
-- Distributed unique ID generation
-- Secure token creation with metadata
-- Token validation and decoding
-- Worker ID management
-- Clock drift handling
-- Sequence overflow protection
+- **Distributed ID Generation**: Generates unique, sortable, distributed IDs in Snowflake format
+- **Simple Token Format**: Two-part tokens with JSON payload and HMAC signature
+- **Type-Safe**: Full TypeScript support with generic token data types
+- **High Performance**: Can generate thousands of unique IDs per millisecond per instance
+- **Clock Drift Handling**: Detects and handles system clock changes
+- **Worker ID Management**: Supports up to 1024 distributed instances
 
-## ID Structure
+## Installation
 
-Helix IDs are 64-bit integers with the following structure:
-```
-+------------------+------------------+------------------+
-|      Timestamp   |    Worker ID    |    Sequence     |
-|     (42 bits)    |    (10 bits)    |    (12 bits)    |
-+------------------+------------------+------------------+
+```bash
+pnpm add @vtubers.tv/node-utils
 ```
 
-- **Timestamp**: 42 bits (milliseconds since custom epoch)
-- **Worker ID**: 10 bits (supports up to 1024 instances)
-- **Sequence**: 12 bits (up to 4096 IDs per millisecond)
-
-## Basic Usage
-
-### Generating IDs
+## Quick Start
 
 ```typescript
 import { Helix } from '@vtubers.tv/node-utils';
 
-// Create Helix instance
-const helix = new Helix();
+// Create a Helix instance with a token secret
+const helix = new Helix({
+    tokenSecret: 'your-secret-key'
+});
 
-// Generate unique ID
+// Generate a unique ID
 const id = helix.generateId();
-```
 
-### Creating Tokens
-
-```typescript
-// Generate token with metadata
+// Create a token with data
 const token = helix.generateToken({
-  userId: '123',
-  role: 'admin'
+    userId: '123',
+    role: 'admin',
+    exp: Date.now() + 3600000 // 1 hour expiration
 });
 
-// Generate token with metadata (extra data)
-const token = helix.generateToken({
-  userId: '123',
-  role: 'admin',
-  messageFromSelina: 'I love cottontailva!'
-});
-
-// Decode token
-const decoded = Helix.decodeToken(token);
+// Verify and decode a token
+const data = helix.verifyToken(token);
 ```
 
-### Decoding IDs
+## ID Generation
+
+### ID Structure (64 bits)
+
+```
++------------------+------------------+------------------+
+|    Timestamp     |    Worker ID    |    Sequence     |
+|    (42 bits)     |    (10 bits)    |    (12 bits)    |
++------------------+------------------+------------------+
+```
+
+- **Timestamp**: 42 bits - milliseconds since 2015-01-01T00:00:00.000Z
+- **Worker ID**: 10 bits - supports up to 1024 instances (0-1023)
+- **Sequence**: 12 bits - up to 4096 IDs per millisecond
+
+### Example
 
 ```typescript
-// Decode ID components
-const components = Helix.decodeId(BigInt(id));
-console.log(components.timestamp); // Date
-console.log(components.workerId); // number
-console.log(components.sequence); // number
+// Generate an ID
+const id = helix.generateId();
+
+// Decode an ID
+const decoded = Helix.decodeId(id);
+console.log(decoded);
+// {
+//   timestamp: Date,    // When the ID was generated
+//   workerId: number,   // Which instance generated it
+//   sequence: number    // Sequence number within the millisecond
+// }
 ```
 
-## Advanced Features
-
-### Worker ID Management
-
-```typescript
-// Create instance with specific worker ID
-const helix = new Helix(42);
-
-// Auto-generated worker ID based on environment
-const helix = new Helix();
-```
-
-### Token Generation
-
-```typescript
-// Generate token with different data types
-const token1 = helix.generateToken('string data');
-const token2 = helix.generateToken(Buffer.from('binary data'));
-const token3 = helix.generateToken({ complex: 'object' });
-```
-
-### Token Validation
-
-```typescript
-try {
-  const decoded = Helix.decodeToken(token);
-  // Token is valid
-} catch (error) {
-  if (error instanceof HelixError) {
-    // Handle invalid token
-  }
-}
-```
-
-## Technical Details
-
-### Epoch
-
-Helix uses a custom epoch (2015-01-01T00:00:00.000Z) to maximize the available timestamp range:
-```typescript
-const EPOCH = 1420070400000; // 2015-01-01T00:00:00.000Z
-```
-
-### Bit Allocation
-
-```typescript
-const TIMESTAMP_BITS = 42;
-const WORKER_ID_BITS = 10;
-const SEQUENCE_BITS = 12;
-
-const MAX_WORKER_ID = (1 << WORKER_ID_BITS) - 1;  // 1023
-const MAX_SEQUENCE = (1 << SEQUENCE_BITS) - 1;    // 4095
-```
+## Token Generation
 
 ### Token Format
 
-Tokens follow the format:
 ```
-[Base64URL(Version + Data)][Base64URL(Entropy)][Base64URL(HMAC Signature)]
+<base64url(JSON data)>.<HMAC signature>
 ```
+
+- **Part 1**: Base64URL-encoded JSON data
+- **Part 2**: HMAC-SHA256 signature (base64url encoded)
+
+### Example
+
+```typescript
+// Create a token with typed data
+interface UserToken {
+    userId: string;
+    roles: string[];
+    exp: number;
+}
+
+const helix = new Helix({ tokenSecret: 'your-secret-key' });
+
+const token = helix.generateToken<UserToken>({
+    userId: '123',
+    roles: ['admin', 'user'],
+    exp: Date.now() + 3600000
+});
+
+// Verify and decode with type safety
+const data = helix.verifyToken<UserToken>(token);
+console.log(data.roles); // TypeScript knows this is string[]
+```
+
+## Configuration
+
+### Constructor Options
+
+```typescript
+const helix = new Helix({
+    // Optional: Manual worker ID (0-1023)
+    workerId?: number;
+    
+    // Required for token operations: Secret key for signing tokens
+    tokenSecret?: string;
+});
+```
+
+### Worker ID Generation
+
+If no manual worker ID is provided, Helix generates a deterministic worker ID based on:
+- Hostname
+- Process ID (PID)
+
+This ensures consistent worker IDs across process restarts while still providing good distribution in clustered environments.
 
 ## Error Handling
 
-### Clock Drift
-
 ```typescript
+import { HelixError } from '@vtubers.tv/node-utils';
+
 try {
-  const id = helix.generateId();
-} catch (error) {
-  if (error instanceof HelixError) {
-    // Handle clock drift
-  }
+    const token = helix.generateToken(data);
+} catch (err) {
+    if (err instanceof HelixError) {
+        // Handle Helix-specific errors
+        console.error(err.message);
+    }
 }
 ```
 
-### Sequence Overflow
-
-```typescript
-// Helix automatically handles sequence overflow
-// by waiting for the next millisecond
-const id = helix.generateId();
-```
-
-## Security Features
-
-### Token Security
-
-1. **HMAC Signing**
-   - All tokens are signed with HMAC-SHA256
-   - Signature length: 8 bytes
-   - Base64URL encoding for URL safety
-   - Manual signature verification available via `verifyHMAC`
-
-2. **Entropy**
-   - 16 bytes of random entropy
-   - Prevents token prediction
-   - Ensures uniqueness
-
-3. **Version Control**
-   - Token versioning support
-   - Future compatibility
-   - Migration path
-
-### HMAC Verification
-
-```typescript
-// Verify an HMAC signature
-const payload = Buffer.from('data to verify');
-const signature = 'base64url_encoded_signature';
-
-// Using default secret
-const isValid = Helix.verifyHMAC(payload, signature);
-
-// Using custom secret
-const isValid = Helix.verifyHMAC(payload, signature, 'custom_secret');
-
-// String payload
-const isValid = Helix.verifyHMAC('string data', signature);
-```
-
-The `verifyHMAC` function provides:
-- Direct signature verification
-- Support for Buffer and string payloads
-- Optional custom secret key
-- Safe error handling (returns false on invalid input)
-- Constant-time comparison for security
+Common errors:
+- `Token secret not configured` - Attempting token operations without a secret
+- `Invalid token format` - Token doesn't match expected format
+- `Invalid token signature` - Token signature verification failed
+- `Clock moved backwards` - System time moved backwards
+- `Worker ID exceeds maximum` - Invalid worker ID provided
 
 ## Best Practices
 
-1. **ID Generation**
-   - Use singleton pattern
-   - Handle clock drift
-   - Monitor sequence overflow
+1. **Token Secrets**
+   - Use a strong, random secret key
+   - Store securely (e.g., environment variables)
+   - Rotate secrets periodically
+   - Never expose in client-side code
 
-2. **Token Management**
-   - Store tokens securely
-   - Validate before use
-   - Handle expiration
+2. **Worker IDs**
+   - Use consistent worker IDs per instance
+   - Monitor for worker ID collisions
+   - Consider using manual IDs in production
 
-3. **Worker ID Management**
-   - Use stable worker IDs
-   - Monitor worker count
-   - Handle worker failures
+3. **Token Data**
+   - Include expiration timestamps
+   - Minimize token payload size
+   - Validate data before generating tokens
 
 4. **Error Handling**
-   - Implement proper error handling
-   - Log security events
-   - Monitor for issues
+   - Always handle HelixError cases
+   - Implement proper logging
+   - Monitor for clock drift issues
 
-## Performance Considerations
+## Performance
 
-1. **ID Generation**
-   - High throughput (4096 IDs/ms)
-   - No network calls
-   - Minimal CPU usage
+- Can generate 4096 unique IDs per millisecond per worker
+- Token generation and verification are CPU-bound operations
+- ID generation is purely in-memory and very fast
+- Worker ID generation is cached per instance
 
-2. **Token Generation**
-   - Efficient encoding
-   - Fast validation
-   - Minimal overhead
+## Migration Guide
 
-3. **Resource Usage**
-   - Memory efficient
-   - No external dependencies
-   - Thread-safe
+### From Previous Version
+
+1. Token format changed from three parts to two:
+   - Old: `<payload>.<entropy>.<signature>`
+   - New: `<payload>.<signature>`
+
+2. Constructor now takes an options object:
+   ```typescript
+   // Old
+   const helix = new Helix(workerId);
+   
+   // New
+   const helix = new Helix({ workerId, tokenSecret });
+   ```
+
+3. Token methods simplified:
+   ```typescript
+   // Old
+   const token = helix.generateToken(data);
+   const decoded = Helix.decodeToken(token);
+   
+   // New
+   const token = helix.generateToken(data);
+   const decoded = helix.verifyToken(token);
+   ```

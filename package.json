@@ -1,6 +1,6 @@
 {
   "name": "@vtubers.tv/utils",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Official VTubers.TV utility library",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

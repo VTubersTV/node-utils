@@ -2,25 +2,6 @@ import os from 'os';
 import crypto from 'crypto';
 
 /**
- * Helix - A high-performance distributed unique ID and token generator
- *
- * Features:
- * - Generates unique, sortable, distributed IDs (Snowflake format)
- * - Creates secure, verifiable tokens with embedded metadata
- * - Handles clock drift and sequence overflow
- * - Provides instance isolation via worker IDs
- * - Supports ID/token decoding and validation
- *
- * ID Structure (64 bits):
- * - 42 bits: Timestamp (milliseconds since custom epoch)
- * - 10 bits: Worker/Instance ID (supports up to 1024 instances)
- * - 12 bits: Sequence number (up to 4096 IDs per millisecond)
- *
- * Token Format:
- * [Base64URL(Version + Data)][Base64URL(Entropy)][Base64URL(HMAC Signature)]
- */
-
-/**
  * Custom error class for Helix-specific errors
  */
 export class HelixError extends Error {
@@ -31,7 +12,17 @@ export class HelixError extends Error {
 }
 
 /**
- * Main Helix class for generating distributed IDs and secure tokens
+ * Helix - A high-performance distributed unique ID and token generator
+ *
+ * Features:
+ * - Generates unique, sortable, distributed IDs (Snowflake format)
+ * - Creates secure, verifiable tokens with embedded JSON data
+ * - Simple two-part token format: <base64url(data)>.<hmac_signature>
+ *
+ * ID Structure (64 bits):
+ * - 42 bits: Timestamp (milliseconds since custom epoch)
+ * - 10 bits: Worker/Instance ID (supports up to 1024 instances)
+ * - 12 bits: Sequence number (up to 4096 IDs per millisecond)
  */
 export class Helix {
     // Custom epoch (2015-01-01T00:00:00.000Z)
@@ -48,29 +39,25 @@ export class Helix {
     private static readonly TIMESTAMP_SHIFT = Helix.WORKER_ID_BITS + Helix.SEQUENCE_BITS;
     private static readonly WORKER_ID_SHIFT = Helix.SEQUENCE_BITS;
 
-    // Token configuration
-    private static readonly TOKEN_VERSION = 1;
-    private static readonly TOKEN_SECRET = process.env.HELIX_TOKEN_SECRET || crypto.randomBytes(32).toString('hex');
-    private static readonly TOKEN_HMAC_ALGO = 'sha256';
-    private static readonly TOKEN_HMAC_LENGTH = 8;
-
     private readonly workerId: number;
     private sequence: number;
     private lastTimestamp: number;
-    private readonly startTime: number;
+    private readonly tokenSecret: string;
 
     /**
      * Creates a new Helix instance
-     * @param workerId Optional manual worker ID override (0-1023)
+     * @param options Configuration options for Helix
+     * @param options.workerId Optional manual worker ID override (0-1023)
+     * @param options.tokenSecret Secret key for token signing (required for token operations)
      * @throws {HelixError} If worker ID exceeds maximum allowed value
      */
-    constructor(workerId?: number) {
-        this.startTime = Date.now();
+    constructor(options: { workerId?: number; tokenSecret?: string } = {}) {
         this.sequence = 0;
         this.lastTimestamp = -1;
+        this.tokenSecret = options.tokenSecret || '';
 
         // Allow manual worker ID override, otherwise auto-generate
-        this.workerId = workerId ?? Helix.generateWorkerId();
+        this.workerId = options.workerId ?? this.generateWorkerId();
 
         if (this.workerId > Helix.MAX_WORKER_ID) {
             throw new HelixError(
@@ -84,32 +71,11 @@ export class Helix {
      * @returns A string representation of the generated ID
      */
     public generateId(): string {
-        const id = this.nextId();
-        return id.toString();
-    }
-
-    /**
-     * Creates a secure token containing an ID and metadata
-     * @param data Optional data to embed in the token
-     * @returns A secure token string in the format: payload.entropy.signature
-     */
-    public generateToken(data?: Buffer | string | object): string {
-        const id = this.nextId();
-        return this.createToken(id, data);
-    }
-
-    /**
-     * Core ID generation logic
-     * @returns A unique 64-bit BigInt ID
-     * @throws {HelixError} If clock drift is detected
-     */
-    private nextId(): bigint {
         let timestamp = Date.now();
-        const drift = timestamp - this.startTime;
 
-        if (drift < 0) {
+        if (timestamp < this.lastTimestamp) {
             throw new HelixError(
-                `Clock drift detected - system time moved backwards by ${-drift}ms`
+                `Clock moved backwards by ${this.lastTimestamp - timestamp}ms`
             );
         }
 
@@ -124,144 +90,104 @@ export class Helix {
 
         this.lastTimestamp = timestamp;
 
-        return (BigInt(timestamp - Helix.EPOCH) << BigInt(Helix.TIMESTAMP_SHIFT)) |
-               (BigInt(this.workerId) << BigInt(Helix.WORKER_ID_SHIFT)) |
-               BigInt(this.sequence);
+        const id = (BigInt(timestamp - Helix.EPOCH) << BigInt(Helix.TIMESTAMP_SHIFT)) |
+                  (BigInt(this.workerId) << BigInt(Helix.WORKER_ID_SHIFT)) |
+                  BigInt(this.sequence);
+
+        return id.toString();
     }
 
     /**
-     * Creates a secure token with embedded data
-     * @param id The BigInt ID to embed in the token
-     * @param data Optional data to embed in the token
-     * @returns A secure token string in the format: payload.entropy.signature
+     * Creates a secure token containing JSON data
+     * @param data The data to embed in the token
+     * @returns A secure token string in the format: base64url(data).signature
+     * @throws {HelixError} If token secret is not configured
      */
-    private createToken(id: bigint, data?: Buffer | string | object): string {
-        // Convert data to buffer if provided
-        let dataBuffer: Buffer;
-        if (data instanceof Buffer) {
-            dataBuffer = data;
-        } else if (typeof data === 'string') {
-            dataBuffer = Buffer.from(data);
-        } else if (data) {
-            dataBuffer = Buffer.from(JSON.stringify(data));
-        } else {
-            dataBuffer = Buffer.alloc(0);
+    public generateToken(data: unknown): string {
+        if (!this.tokenSecret) {
+            throw new HelixError('Token secret not configured');
         }
 
-        // Calculate total payload size
-        const payloadSize = 1 + 8 + dataBuffer.length; // version + id + data
-        const buffer = Buffer.alloc(payloadSize + 16); // payload + entropy
-
-        let offset = 0;
-
-        // Write token version (1 byte)
-        buffer.writeUInt8(Helix.TOKEN_VERSION, offset++);
-
-        // Write ID (8 bytes)
-        buffer.writeBigUInt64BE(id, offset);
-        offset += 8;
-
-        // Write data if provided
-        if (dataBuffer.length > 0) {
-            dataBuffer.copy(buffer, offset);
-            offset += dataBuffer.length;
-        }
-
-        // Write entropy (16 bytes)
-        crypto.randomFillSync(buffer, offset, 16);
+        // Convert data to JSON string and encode as base64url
+        const jsonData = JSON.stringify(data);
+        const payload = Buffer.from(jsonData).toString('base64url');
 
         // Generate HMAC signature
-        const hmac = crypto.createHmac(Helix.TOKEN_HMAC_ALGO, Helix.TOKEN_SECRET)
-            .update(buffer)
-            .digest()
-            .slice(0, Helix.TOKEN_HMAC_LENGTH);
+        const signature = this.signPayload(payload);
 
-        // Encode token parts
-        const payload = buffer.slice(0, offset).toString('base64url');
-        const entropy = buffer.slice(offset, offset + 16).toString('base64url');
-        const signature = hmac.toString('base64url');
-
-        return `${payload}.${entropy}.${signature}`;
+        return `${payload}.${signature}`;
     }
 
     /**
-     * Decodes and validates a token, returning its components
-     * @param token The token string to decode
-     * @returns Object containing decoded token components
-     * @throws {HelixError} If token format is invalid or signature verification fails
+     * Verifies and decodes a token
+     * @param token The token string to verify and decode
+     * @returns The decoded data from the token
+     * @throws {HelixError} If token is invalid or signature verification fails
      */
-    public static decodeToken(token: string): {
-        id: string;
-        version: number;
-        data?: Buffer;
-        timestamp: Date;
-        workerId: number;
-        sequence: number;
-    } {
-        const parts = token.split('.');
+    public verifyToken<T = unknown>(token: string): T {
+        if (!this.tokenSecret) {
+            throw new HelixError('Token secret not configured');
+        }
 
-        if (parts.length !== 3) {
+        const parts = token.split('.');
+        if (parts.length !== 2) {
             throw new HelixError('Invalid token format');
         }
 
+        const [payload, signature] = parts;
+
+        // Verify signature
+        const expectedSignature = this.signPayload(payload);
+        if (!crypto.timingSafeEqual(
+            Buffer.from(signature),
+            Buffer.from(expectedSignature)
+        )) {
+            throw new HelixError('Invalid token signature');
+        }
+
         try {
-            const [payload, entropy, signature] = parts;
-
-            // Reconstruct original buffer
-            const payloadBuffer = Buffer.from(payload, 'base64url');
-            const entropyBuffer = Buffer.from(entropy, 'base64url');
-            const buffer = Buffer.concat([payloadBuffer, entropyBuffer]);
-
-            // Verify signature
-            const hmac = crypto.createHmac(Helix.TOKEN_HMAC_ALGO, Helix.TOKEN_SECRET)
-                .update(buffer)
-                .digest()
-                .slice(0, Helix.TOKEN_HMAC_LENGTH);
-
-            if (hmac.toString('base64url') !== signature) {
-                throw new HelixError('Invalid token signature');
-            }
-
-            // Extract data
-            const version = buffer.readUInt8(0);
-            const id = buffer.readBigUInt64BE(1);
-
-            // Extract any additional data
-            const data = payloadBuffer.length > 9 ? payloadBuffer.slice(9) : undefined;
-
-            // Decode the ID components
-            const decoded = this.decodeId(id);
-
-            return {
-                version,
-                id: id.toString(),
-                data,
-                ...decoded
-            };
+            // Decode payload
+            const jsonData = Buffer.from(payload, 'base64url').toString();
+            return JSON.parse(jsonData) as T;
         } catch (err) {
-            throw new HelixError('Failed to decode token');
+            throw new HelixError('Failed to decode token payload');
         }
     }
 
     /**
      * Decodes a Snowflake ID into its components
-     * @param id The BigInt ID to decode
+     * @param id The ID to decode
      * @returns Object containing timestamp, worker ID and sequence number
      */
-    public static decodeId(id: bigint): {
+    public static decodeId(id: string | bigint): {
         timestamp: Date;
         workerId: number;
         sequence: number;
     } {
-        const timestamp = Number(id >> BigInt(Helix.TIMESTAMP_SHIFT)) + Helix.EPOCH;
-        const workerId = Number((id >> BigInt(Helix.WORKER_ID_SHIFT)) & BigInt(Helix.MAX_WORKER_ID));
-        const sequence = Number(id & BigInt(Helix.MAX_SEQUENCE));
+        const bigIntId = typeof id === 'string' ? BigInt(id) : id;
+
+        const timestamp = Number(bigIntId >> BigInt(Helix.TIMESTAMP_SHIFT)) + Helix.EPOCH;
+        const workerId = Number((bigIntId >> BigInt(Helix.WORKER_ID_SHIFT)) & BigInt(Helix.MAX_WORKER_ID));
+        const sequence = Number(bigIntId & BigInt(Helix.MAX_SEQUENCE));
 
         return {
             timestamp: new Date(timestamp),
             workerId,
             sequence
         };
+    }
+
+    /**
+     * Signs a payload using HMAC-SHA256
+     * @param payload The payload to sign
+     * @returns The base64url encoded signature
+     */
+    private signPayload(payload: string): string {
+        return crypto
+            .createHmac('sha256', this.tokenSecret)
+            .update(payload)
+            .digest()
+            .toString('base64url');
     }
 
     /**
@@ -278,69 +204,12 @@ export class Helix {
     }
 
     /**
-     * Generates a deterministic worker ID based on environment
+     * Generates a deterministic worker ID based on hostname and process ID
      * @returns A worker ID between 0 and MAX_WORKER_ID
      */
-    private static generateWorkerId(): number {
-        try {
-            // Try Vercel deployment ID first
-            const vercelId = process.env.VERCEL_DEPLOYMENT_ID;
-            if (vercelId) {
-                return this.hashToWorkerId(vercelId);
-            }
-
-            // Try Kubernetes pod name
-            const podName = process.env.KUBERNETES_POD_NAME;
-            if (podName) {
-                return this.hashToWorkerId(podName);
-            }
-
-            // Fallback to hostname + PID + uptime + memory usage for better uniqueness
-            const hostIdentifier = `${os.hostname()}:${process.pid}:${os.uptime()}:${process.memoryUsage().heapUsed}`;
-            return this.hashToWorkerId(hostIdentifier);
-
-        } catch (error) {
-            // Ultimate fallback - random but stable for process lifetime
-            // Use a more cryptographically secure method
-            const buffer = crypto.randomBytes(4);
-            return buffer.readUInt32BE(0) & Helix.MAX_WORKER_ID;
-        }
-    }
-
-    /**
-     * Converts a string input into a valid worker ID
-     * @param input String to hash into a worker ID
-     * @returns A worker ID between 0 and MAX_WORKER_ID
-     */
-    private static hashToWorkerId(input: string): number {
-        const hash = crypto.createHash('sha256').update(input).digest();
+    private generateWorkerId(): number {
+        const hostIdentifier = `${os.hostname()}:${process.pid}`;
+        const hash = crypto.createHash('sha256').update(hostIdentifier).digest();
         return hash.readUInt32BE(0) & Helix.MAX_WORKER_ID;
-    }
-
-    /**
-     * Verifies an HMAC signature against a given payload
-     * @param payload - The data payload to verify
-     * @param signature - The base64url-encoded HMAC signature to verify against
-     * @param secret - Optional secret key (defaults to TOKEN_SECRET)
-     * @returns boolean - True if signature is valid, false otherwise
-     * @throws {HelixError} If payload or signature are invalid
-     */
-    public static verifyHMAC(payload: Buffer | string, signature: string, secret?: string): boolean {
-        try {
-            // Convert string payload to Buffer if needed
-            const payloadBuffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
-
-            // Generate HMAC using provided or default secret
-            const hmac = crypto.createHmac(Helix.TOKEN_HMAC_ALGO, secret || Helix.TOKEN_SECRET)
-                .update(payloadBuffer)
-                .digest()
-                .slice(0, Helix.TOKEN_HMAC_LENGTH)
-                .toString('base64url');
-
-            // Compare signatures
-            return hmac === signature;
-        } catch (err) {
-            return false
-        }
     }
 }
