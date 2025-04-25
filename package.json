@@ -3,12 +3,16 @@
   "version": "1.0.1",
   "description": "Official VTubers.TV utility library",
   "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "browser": "dist/index.browser.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "prepare": "npm run build",
+    "build": "pnpm run build:node && pnpm run build:browser",
+    "build:node": "tsc",
+    "build:browser": "rollup -c rollup.config.js",
+    "prepare": "pnpm run build",
     "clean": "rimraf dist",
-    "prebuild": "npm run clean",
+    "prebuild": "pnpm run clean",
     "dev": "tsc --watch"
   },
   "keywords": [
@@ -37,9 +41,23 @@
   "engines": {
     "node": ">=16.0.0"
   },
+  "dependencies": {
+    "tslib": "^2.6.2"
+  },
   "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-replace": "^5.0.5",
+    "@rollup/plugin-typescript": "^11.1.6",
     "@types/node": "^20.11.19",
     "rimraf": "^5.0.5",
+    "rollup": "^4.12.0",
+    "rollup-plugin-terser": "^7.0.2",
     "typescript": "^5.3.3"
-  }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "src"
+  ]
 }
