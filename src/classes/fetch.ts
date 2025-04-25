@@ -1,5 +1,3 @@
-import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
-
 /**
  * Enhanced HTTP client with convenient methods and rich features
  */
@@ -46,14 +44,13 @@ export class HttpClient {
             timeout?: number;
         }
     ): Promise<T> {
-        const response = await this.request<T>({
+        const queryString = config?.params ? '?' + new URLSearchParams(config.params).toString() : '';
+        const response = await this.request<T>(`${url}${queryString}`, {
             method: 'GET',
-            url,
-            params: config?.params,
             headers: config?.headers,
             timeout: config?.timeout,
         });
-        return response.data;
+        return response;
     }
 
     /**
@@ -67,14 +64,13 @@ export class HttpClient {
             timeout?: number;
         }
     ): Promise<T> {
-        const response = await this.request<T>({
+        const response = await this.request<T>(url, {
             method: 'POST',
-            url,
-            data,
+            body: JSON.stringify(data),
             headers: config?.headers,
             timeout: config?.timeout
         });
-        return response.data;
+        return response;
     }
 
     /**
@@ -88,14 +84,13 @@ export class HttpClient {
             timeout?: number;
         }
     ): Promise<T> {
-        const response = await this.request<T>({
+        const response = await this.request<T>(url, {
             method: 'PUT',
-            url,
-            data,
+            body: JSON.stringify(data),
             headers: config?.headers,
             timeout: config?.timeout
         });
-        return response.data;
+        return response;
     }
 
     /**
@@ -108,13 +103,12 @@ export class HttpClient {
             timeout?: number;
         }
     ): Promise<T> {
-        const response = await this.request<T>({
+        const response = await this.request<T>(url, {
             method: 'DELETE',
-            url,
             headers: config?.headers,
             timeout: config?.timeout
         });
-        return response.data;
+        return response;
     }
 
     /**
@@ -128,33 +122,44 @@ export class HttpClient {
             timeout?: number;
         }
     ): Promise<T> {
-        const response = await this.request<T>({
+        const response = await this.request<T>(url, {
             method: 'PATCH',
-            url,
-            data,
+            body: JSON.stringify(data),
             headers: config?.headers,
             timeout: config?.timeout
         });
-        return response.data;
+        return response;
     }
 
     /**
      * Make a request with full configuration
      */
-    private async request<T>(config: AxiosRequestConfig): Promise<AxiosResponse<T>> {
+    private async request<T>(url: string, config: RequestInit & { timeout?: number }): Promise<T> {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), config.timeout || this.timeout);
+
         try {
-            return await axios({
+            const response = await fetch(this.baseURL + url, {
                 ...config,
-                baseURL: this.baseURL,
                 headers: {
+                    'Content-Type': 'application/json',
                     ...this.defaultHeaders,
                     ...config.headers
                 },
-                timeout: config.timeout || this.timeout
+                signal: controller.signal
             });
+
+            clearTimeout(id);
+
+            if (!response.ok) {
+                throw new Error(`HTTP Error: ${response.status} - ${response.statusText}`);
+            }
+
+            return await response.json();
         } catch (error) {
-            if (axios.isAxiosError(error)) {
-                throw new Error(`HTTP Error: ${error.response?.status} - ${error.message}`);
+            clearTimeout(id);
+            if (error instanceof Error) {
+                throw new Error(`HTTP Error: ${error.message}`);
             }
             throw error;
         }
