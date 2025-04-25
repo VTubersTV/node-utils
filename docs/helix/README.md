@@ -161,6 +161,7 @@ const id = helix.generateId();
    - All tokens are signed with HMAC-SHA256
    - Signature length: 8 bytes
    - Base64URL encoding for URL safety
+   - Manual signature verification available via `verifyHMAC`
 
 2. **Entropy**
    - 16 bytes of random entropy
@@ -171,6 +172,30 @@ const id = helix.generateId();
    - Token versioning support
    - Future compatibility
    - Migration path
+
+### HMAC Verification
+
+```typescript
+// Verify an HMAC signature
+const payload = Buffer.from('data to verify');
+const signature = 'base64url_encoded_signature';
+
+// Using default secret
+const isValid = Helix.verifyHMAC(payload, signature);
+
+// Using custom secret
+const isValid = Helix.verifyHMAC(payload, signature, 'custom_secret');
+
+// String payload
+const isValid = Helix.verifyHMAC('string data', signature);
+```
+
+The `verifyHMAC` function provides:
+- Direct signature verification
+- Support for Buffer and string payloads
+- Optional custom secret key
+- Safe error handling (returns false on invalid input)
+- Constant-time comparison for security
 
 ## Best Practices
 

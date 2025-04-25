@@ -3,19 +3,19 @@ import crypto from 'crypto';
 
 /**
  * Helix - A high-performance distributed unique ID and token generator
- * 
+ *
  * Features:
  * - Generates unique, sortable, distributed IDs (Snowflake format)
  * - Creates secure, verifiable tokens with embedded metadata
  * - Handles clock drift and sequence overflow
  * - Provides instance isolation via worker IDs
  * - Supports ID/token decoding and validation
- * 
+ *
  * ID Structure (64 bits):
  * - 42 bits: Timestamp (milliseconds since custom epoch)
  * - 10 bits: Worker/Instance ID (supports up to 1024 instances)
  * - 12 bits: Sequence number (up to 4096 IDs per millisecond)
- * 
+ *
  * Token Format:
  * [Base64URL(Version + Data)][Base64URL(Entropy)][Base64URL(HMAC Signature)]
  */
@@ -39,7 +39,7 @@ export class Helix {
 
     // Bit allocation
     private static readonly TIMESTAMP_BITS = 42;
-    private static readonly WORKER_ID_BITS = 10; 
+    private static readonly WORKER_ID_BITS = 10;
     private static readonly SEQUENCE_BITS = 12;
 
     // Derived constants
@@ -199,7 +199,7 @@ export class Helix {
         sequence: number;
     } {
         const parts = token.split('.');
-        
+
         if (parts.length !== 3) {
             throw new HelixError('Invalid token format');
         }
@@ -225,7 +225,7 @@ export class Helix {
             // Extract data
             const version = buffer.readUInt8(0);
             const id = buffer.readBigUInt64BE(1);
-            
+
             // Extract any additional data
             const data = payloadBuffer.length > 9 ? payloadBuffer.slice(9) : undefined;
 
@@ -315,5 +315,32 @@ export class Helix {
     private static hashToWorkerId(input: string): number {
         const hash = crypto.createHash('sha256').update(input).digest();
         return hash.readUInt32BE(0) & Helix.MAX_WORKER_ID;
+    }
+
+    /**
+     * Verifies an HMAC signature against a given payload
+     * @param payload - The data payload to verify
+     * @param signature - The base64url-encoded HMAC signature to verify against
+     * @param secret - Optional secret key (defaults to TOKEN_SECRET)
+     * @returns boolean - True if signature is valid, false otherwise
+     * @throws {HelixError} If payload or signature are invalid
+     */
+    public static verifyHMAC(payload: Buffer | string, signature: string, secret?: string): boolean {
+        try {
+            // Convert string payload to Buffer if needed
+            const payloadBuffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
+
+            // Generate HMAC using provided or default secret
+            const hmac = crypto.createHmac(Helix.TOKEN_HMAC_ALGO, secret || Helix.TOKEN_SECRET)
+                .update(payloadBuffer)
+                .digest()
+                .slice(0, Helix.TOKEN_HMAC_LENGTH)
+                .toString('base64url');
+
+            // Compare signatures
+            return hmac === signature;
+        } catch (err) {
+            return false
+        }
     }
 }
