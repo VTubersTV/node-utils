@@ -1,14 +1,14 @@
 {
   "name": "@vtubers.tv/utils",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Official VTubers.TV utility library",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "prepare": "pnpm run build",
+    "prepare": "npm run build",
     "clean": "rimraf dist",
-    "prebuild": "pnpm run clean",
+    "prebuild": "npm run clean",
     "dev": "tsc --watch"
   },
   "keywords": [
