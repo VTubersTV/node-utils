@@ -1,5 +1,6 @@
 import os from 'os';
 import crypto from 'crypto';
+import { performance } from 'perf_hooks';
 
 /**
  * Custom error class for Helix-specific errors
@@ -43,6 +44,13 @@ export class Helix {
     private sequence: number;
     private lastTimestamp: number;
     private readonly tokenSecret: string;
+    private readonly performanceNow: () => number;
+    private readonly timestampMask: bigint;
+    private readonly workerIdMask: bigint;
+    private readonly sequenceMask: bigint;
+    private readonly workerIdShifted: bigint;
+    private lastTimeHigh: number;
+    private lastTimeLow: number;
 
     /**
      * Creates a new Helix instance
@@ -54,10 +62,19 @@ export class Helix {
     constructor(options: { workerId?: number; tokenSecret?: string } = {}) {
         this.sequence = 0;
         this.lastTimestamp = -1;
+        this.lastTimeHigh = 0;
+        this.lastTimeLow = 0;
         this.tokenSecret = options.tokenSecret || '';
+        this.performanceNow = performance.now.bind(performance);
 
-        // Allow manual worker ID override, otherwise auto-generate
+        // Initialize worker ID
         this.workerId = options.workerId ?? this.generateWorkerId();
+
+        // Pre-calculate masks and shifts for faster bit operations
+        this.timestampMask = (BigInt(1) << BigInt(Helix.TIMESTAMP_BITS)) - BigInt(1);
+        this.workerIdMask = (BigInt(1) << BigInt(Helix.WORKER_ID_BITS)) - BigInt(1);
+        this.sequenceMask = (BigInt(1) << BigInt(Helix.SEQUENCE_BITS)) - BigInt(1);
+        this.workerIdShifted = BigInt(this.workerId) << BigInt(Helix.WORKER_ID_SHIFT);
 
         if (this.workerId > Helix.MAX_WORKER_ID) {
             throw new HelixError(
@@ -71,28 +88,52 @@ export class Helix {
      * @returns A string representation of the generated ID
      */
     public generateId(): string {
-        let timestamp = Date.now();
+        // Get high-precision timestamp
+        const now = this.performanceNow();
+        const timestamp = Math.floor(now);
 
-        if (timestamp < this.lastTimestamp) {
+        // Split timestamp into high and low parts for faster comparison
+        const timeHigh = Math.floor(timestamp / 1000);
+        const timeLow = timestamp % 1000;
+
+        if (timeHigh < this.lastTimeHigh || (timeHigh === this.lastTimeHigh && timeLow < this.lastTimeLow)) {
             throw new HelixError(
-                `Clock moved backwards by ${this.lastTimestamp - timestamp}ms`
+                `Clock moved backwards by ${(this.lastTimeHigh * 1000 + this.lastTimeLow) - (timeHigh * 1000 + timeLow)}ms`
             );
         }
 
-        if (timestamp === this.lastTimestamp) {
+        if (timeHigh === this.lastTimeHigh && timeLow === this.lastTimeLow) {
             this.sequence = (this.sequence + 1) & Helix.MAX_SEQUENCE;
             if (this.sequence === 0) {
-                timestamp = this.waitForNextMillis(timestamp);
+                // Use a more efficient wait mechanism with microsecond precision
+                let nextTime = this.performanceNow();
+                while (nextTime <= now) {
+                    nextTime = this.performanceNow();
+                }
+                this.lastTimeHigh = Math.floor(nextTime / 1000);
+                this.lastTimeLow = nextTime % 1000;
+                return this.generateIdWithTimestamp(Math.floor(nextTime));
             }
         } else {
             this.sequence = 0;
         }
 
-        this.lastTimestamp = timestamp;
+        this.lastTimeHigh = timeHigh;
+        this.lastTimeLow = timeLow;
+        return this.generateIdWithTimestamp(timestamp);
+    }
 
-        const id = (BigInt(timestamp - Helix.EPOCH) << BigInt(Helix.TIMESTAMP_SHIFT)) |
-                  (BigInt(this.workerId) << BigInt(Helix.WORKER_ID_SHIFT)) |
-                  BigInt(this.sequence);
+    /**
+     * Generates an ID with the given timestamp
+     * @param timestamp The timestamp to use
+     * @returns A string representation of the generated ID
+     */
+    private generateIdWithTimestamp(timestamp: number): string {
+        // Pre-calculate timestamp offset and use cached workerId shift
+        const timestampOffset = BigInt(timestamp - Helix.EPOCH);
+        const id = (timestampOffset & this.timestampMask) << BigInt(Helix.TIMESTAMP_SHIFT) |
+                  this.workerIdShifted |
+                  (BigInt(this.sequence) & this.sequenceMask);
 
         return id.toString();
     }
@@ -191,19 +232,6 @@ export class Helix {
     }
 
     /**
-     * Waits until the next millisecond
-     * @param currentTime Current timestamp in milliseconds
-     * @returns Next millisecond timestamp
-     */
-    private waitForNextMillis(currentTime: number): number {
-        let timestamp = Date.now();
-        while (timestamp <= currentTime) {
-            timestamp = Date.now();
-        }
-        return timestamp;
-    }
-
-    /**
      * Generates a deterministic worker ID based on hostname and process ID
      * @returns A worker ID between 0 and MAX_WORKER_ID
      */
@@ -213,3 +241,35 @@ export class Helix {
         return hash.readUInt32BE(0) & Helix.MAX_WORKER_ID;
     }
 }
+
+// const helix = new Helix({
+//     tokenSecret: 'test-secret'
+// });
+
+// console.time('Helix ID Generation');
+// const iterations = 1_000_000;
+// const ids = new Set<string>();
+
+// for (let i = 0; i < iterations; i++) {
+//     const id = helix.generateId();
+//     ids.add(id);
+// }
+
+// console.timeEnd('Helix ID Generation');
+
+// console.log(`Generated ${iterations.toLocaleString()} unique IDs`);
+// console.log(`Unique IDs: ${ids.size.toLocaleString()}`);
+// console.log(`Collisions: ${(iterations - ids.size).toLocaleString()}`);
+// console.log(`Collision rate: ${((iterations - ids.size) / iterations * 100).toFixed(6)}%`);
+
+// const sampleId = helix.generateId();
+// console.log('\nSample ID Analysis:');
+// console.log('ID:', sampleId);
+// console.log('Decoded:', Helix.decodeId(sampleId));
+
+
+// const used = process.memoryUsage();
+// console.log('\nMemory Usage:');
+// for (const [key, value] of Object.entries(used)) {
+//     console.log(`${key}: ${(value / 1024 / 1024).toFixed(2)} MB`);
+// }
