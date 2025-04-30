@@ -1,6 +1,6 @@
 {
   "name": "@vtubers.tv/utils",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Official VTubers.TV utility library",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,10 +10,15 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.js"
+    },
+    "./classes/*": {
+      "types": "./dist/classes/*.d.ts",
+      "import": "./dist/classes/*.js",
+      "require": "./dist/classes/*.js"
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/fix-imports.js",
     "prepare": "npm run build",
     "clean": "rimraf dist",
     "prebuild": "npm run clean",
@@ -55,7 +60,6 @@
   },
   "sideEffects": false,
   "files": [
-    "dist",
-    "src"
+    "dist"
   ]
 }
