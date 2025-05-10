@@ -1,6 +1,5 @@
 import os from 'os';
 import crypto from 'crypto';
-import { performance } from 'perf_hooks';
 
 /**
  * Custom error class for Helix-specific errors
@@ -44,7 +43,6 @@ export class Helix {
     private sequence: number;
     private lastTimestamp: number;
     private readonly tokenSecret: string;
-    private readonly performanceNow: () => number;
     private readonly timestampMask: bigint;
     private readonly workerIdMask: bigint;
     private readonly sequenceMask: bigint;
@@ -65,7 +63,6 @@ export class Helix {
         this.lastTimeHigh = 0;
         this.lastTimeLow = 0;
         this.tokenSecret = options.tokenSecret || '';
-        this.performanceNow = performance.now.bind(performance);
 
         // Initialize worker ID
         this.workerId = options.workerId ?? this.generateWorkerId();
@@ -88,8 +85,8 @@ export class Helix {
      * @returns A string representation of the generated ID
      */
     public generateId(): string {
-        // Get high-precision timestamp
-        const now = this.performanceNow();
+        // Get timestamp using Date.now()
+        const now = Date.now();
         const timestamp = Math.floor(now);
 
         // Split timestamp into high and low parts for faster comparison
@@ -105,10 +102,10 @@ export class Helix {
         if (timeHigh === this.lastTimeHigh && timeLow === this.lastTimeLow) {
             this.sequence = (this.sequence + 1) & Helix.MAX_SEQUENCE;
             if (this.sequence === 0) {
-                // Use a more efficient wait mechanism with microsecond precision
-                let nextTime = this.performanceNow();
+                // Use a more efficient wait mechanism
+                let nextTime = Date.now();
                 while (nextTime <= now) {
-                    nextTime = this.performanceNow();
+                    nextTime = Date.now();
                 }
                 this.lastTimeHigh = Math.floor(nextTime / 1000);
                 this.lastTimeLow = nextTime % 1000;
