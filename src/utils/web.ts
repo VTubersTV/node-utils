@@ -1,4 +1,4 @@
-import { deviceTypesConfig } from '../json/device-types';
+import { deviceTypesConfig } from '../json/deviceTypes';
 
 /**
  * Gets device information including user agent, device type, browser details, and screen properties
