@@ -10,3 +10,4 @@ export * from './utils/array';
 export * from './utils/object';
 export * from './utils/web';
 export * from './utils/try';
+export * from './json/httpCodes';
